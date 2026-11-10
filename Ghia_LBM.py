@@ -1,18 +1,24 @@
-import numpy as np
+iimport numpy as np
 import matplotlib.pyplot as plt
 
-Nx = 129
-Ny = 129
-tau = 0.6
-ni = (tau-0.5)/3
-Re = 100 #(100, 400, 1000, 3200, 5000, 10000)
-U_lid = ni*Re/(Nx-1)
-Ma = U_lid*3**(1/2)
+Nx = 256
+Ny = 256
+# tau = 0.6
+c_s = 1 / np.sqrt(3)
+# ni = (tau-0.5)/3
+Re = 1000 #(100, 400, 1000, 3200, 5000, 10000)
+# U_lid = ni*Re/(Nx-1)
+# Ma = U_lid*3**(1/2)
+Ma = 0.1
+U_lid = Ma * c_s;
+nu = U_lid * (Nx - 1) / Re
+tau = (3 * nu) + 0.5
 
+print(tau)
 print(U_lid)
 print(Ma)
 
-maxIter = 10000
+maxIter = 50000
 
 cx = np.array([0, 1, 0, -1, 0, 1, -1, -1, 1])
 cy = np.array([0, 0, 1, 0, -1, 1, 1, -1, -1])
@@ -68,7 +74,7 @@ uy = np.sum(f * cy[:, None, None], axis=0) / rho
 
 plt.figure(figsize=(10, 4))
 plt.subplot(1, 2, 1)
-plt.imshow(np.sqrt(ux**2 + uy**2), origin='lower', cmap='jet')
+plt.imshow(np.sqrt(ux**2 + uy**2)/U_lid, origin='lower', cmap='jet')
 plt.colorbar(label='|U|')
 plt.title('Lid-Driven Cavity, Re=1000')
 
@@ -77,7 +83,7 @@ y_ghia = np.array([1.0, 0.9766, 0.9688, 0.9609, 0.9531, 0.8516, 0.7344, 0.6172, 
 u_ghia = np.array([1.0, 0.65928, 0.57492, 0.51117, 0.46622, 0.33304, 0.18719, 0.05702, -0.06080, -0.10648, -0.27805, -0.38289, -0.29730, -0.22220, -0.20196, -0.18109, 0.0])
 
 plt.subplot(1, 2, 2)
-plt.plot(ux[:, Nx//2], np.linspace(0, 1, Ny), label='LBM')
+plt.plot(ux[:, Nx//2]/U_lid, np.linspace(0, 1, Ny), label='LBM')
 plt.plot(u_ghia, y_ghia, 'o', label='Ghia et al. 1982')
 plt.xlabel('u / U_lid'); plt.ylabel('y / L')
 plt.legend(); plt.grid(True)
