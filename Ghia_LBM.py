@@ -1,14 +1,11 @@
-iimport numpy as np
+import numpy as np
 import matplotlib.pyplot as plt
 
-Nx = 256
-Ny = 256
-# tau = 0.6
+n = 7
+Nx = 2**n
+Ny = 2**n
 c_s = 1 / np.sqrt(3)
-# ni = (tau-0.5)/3
 Re = 1000 #(100, 400, 1000, 3200, 5000, 10000)
-# U_lid = ni*Re/(Nx-1)
-# Ma = U_lid*3**(1/2)
 Ma = 0.1
 U_lid = Ma * c_s;
 nu = U_lid * (Nx - 1) / Re
@@ -16,9 +13,10 @@ tau = (3 * nu) + 0.5
 
 print(tau)
 print(U_lid)
-print(Ma)
 
 maxIter = 50000
+Iter_Tol = 1e-7
+err = 1
 
 cx = np.array([0, 1, 0, -1, 0, 1, -1, -1, 1])
 cy = np.array([0, 0, 1, 0, -1, 1, 1, -1, -1])
@@ -28,6 +26,9 @@ f = np.zeros((9, Ny, Nx))
 rho = np.ones((Ny, Nx))
 ux = np.zeros((Ny, Nx))
 uy = np.zeros((Ny, Nx))
+
+ux_old = ux.copy()
+    
 for i in range(9):
     f[i, :, :] = w[i] * rho
 
@@ -65,16 +66,23 @@ for it in range(maxIter):
     f[7, -1, :] = f[5, -1, :] - 6 * w[7] * rho_top * U_lid
     f[8, -1, :] = f[6, -1, :] + 6 * w[8] * rho_top * U_lid
 
-    if it % 2000 == 0:
+    if it % 200 == 0 and it > 0:
         print(f"Iter {it}, max ux = {np.max(ux):.4f}")
+        err = np.max(np.abs(ux - ux_old)) / U_lid
+        ux_old = ux.copy()
+    
+    if err < Iter_Tol:
+        break
         
 rho = np.sum(f, axis=0)
 ux = np.sum(f * cx[:, None, None], axis=0) / rho
 uy = np.sum(f * cy[:, None, None], axis=0) / rho
+X, Y = np.meshgrid(np.arange(Nx), np.arange(Ny))
 
 plt.figure(figsize=(10, 4))
 plt.subplot(1, 2, 1)
 plt.imshow(np.sqrt(ux**2 + uy**2)/U_lid, origin='lower', cmap='jet')
+plt.streamplot(X, Y, ux/U_lid, uy/U_lid, density=1.2, color='white', linewidth=0.6, arrowsize=0.8)
 plt.colorbar(label='|U|')
 plt.title('Lid-Driven Cavity, Re=1000')
 
