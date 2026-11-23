@@ -11,14 +11,17 @@ fn = 1
 Nx = fn*2**n
 Ny = fn*2**n
 
+h = 0.1 #Fração Volumétrica de Óleo
+
 #########################################
 #
 # Parâmetros LBM
 #
 
+alpha = 0.05
 c_s = 1 / np.sqrt(3)
-Re_w = 100
-Re_oil = 0.9*Re_w
+Re_w = 1000
+Re_oil = alpha*Re_w
 Ma = 0.1
 U_lid = Ma * c_s;
 nu_w = U_lid * (Nx - 1) / Re_w
@@ -35,7 +38,8 @@ print(U_lid)
 # Shan Chen Parameters 
 #
 
-G = 30
+G_ww = -50
+G_oo = -25
 psi0 = 4
 rho0 = 200
 
@@ -61,8 +65,8 @@ print(dt)
 # Parâmetros de Iteração
 #
 
-maxIter = 10000
-Iter_Tol = 1e-5
+maxIter = 501
+Iter_Tol = 1e-3
 err = 1
 
 #########################################
@@ -80,24 +84,43 @@ w  = np.array([4/9, 1/9, 1/9, 1/9, 1/9, 1/36, 1/36, 1/36, 1/36])
 #
 
 f_w = np.zeros((9, Ny, Nx))
-rho_w = np.ones((Ny, Nx))
+rho_w = (1-h)*np.ones((Ny, Nx))
 ux_w = np.zeros((Ny, Nx))
 uy_w = np.zeros((Ny, Nx))
 
 f_oil = np.zeros((9, Ny, Nx))
-rho_oil = 0.1*np.ones((Ny, Nx))
+rho_oil = h*np.ones((Ny, Nx))
 ux_oil = np.zeros((Ny, Nx))
 uy_oil = np.zeros((Ny, Nx))
 
-psi = np.zeros((Ny, Nx))
-Fx = np.zeros((Ny, Nx))
-Fy = np.zeros((Ny, Nx))
+X, Y = np.meshgrid(np.arange(1, Nx+1), np.arange(1, Ny+1))         
+r = np.sqrt((X - Nx / 2)**2 + (Y - Ny / 2)**2)
+oil_frac = 0.5 * (1 - np.tanh((r - Nx / 4) / 4))
+rho_w = 1.0 - 0.95 * oil_frac
+rho_oil = 0.05 + 0.95 * oil_frac
+
+for i in range(9):
+    f_w[i, :, :] = w[i] * rho_w
+    f_oil[i, :, :] = w[i] * rho_oil
+
+psi_w = np.zeros((Ny, Nx))
+psi_oil = np.zeros((Ny, Nx))
+Fx_w = np.zeros((Ny, Nx))
+Fy_w = np.zeros((Ny, Nx))
+Fx_oil = np.zeros((Ny, Nx))
+Fy_oil = np.zeros((Ny, Nx))
 
 ux_w_old = ux_w.copy()
     
 for i in range(9):
     f_w[i, :, :] = w[i] * rho_w
     f_oil[i, :, :] = w[i] * rho_oil
+    
+oil_mass_history = []
+water_mass_history = []
+time_history = []
+
+oil_mass_0 = np.sum(rho_oil)
     
 #########################################
 #
@@ -108,6 +131,12 @@ for it in range(maxIter):
 
     rho_w = np.sum(f_w, axis=0)
     rho_oil = np.sum(f_oil, axis=0)
+    
+    if it % 50 == 0:
+        oil_mass_history.append(np.sum(rho_oil))
+        water_mass_history.append(np.sum(rho_w))
+        time_history.append(it)
+    
     rho = rho_w + rho_oil
     
     ux_w = np.sum(f_w * cx[:, None, None], axis=0) / rho_w
@@ -119,30 +148,45 @@ for it in range(maxIter):
     ux = (np.sum(f_w * cx[:, None, None], axis=0)/tau_w + np.sum(f_oil * cx[:, None, None], axis=0)/tau_oil) / (rho_w/tau_w + rho_oil/tau_oil)
     uy = (np.sum(f_w * cy[:, None, None], axis=0)/tau_w + np.sum(f_oil * cy[:, None, None], axis=0)/tau_oil) / (rho_w/tau_w + rho_oil/tau_oil)
     
-    psi = psi0*(1-np.exp(-rho/rho0))
+    psi_w = psi0*(1-np.exp(-rho_w/rho0))
+    psi_oil = psi0*(1-np.exp(-rho_oil/rho0))
     
-    Fx = -G*psi*(
-    (1/9) * np.roll(psi, -1, axis=1) +
-    -(1/9) * np.roll(psi, +1, axis=1) +
-    (1/36) * np.roll(psi, shift=(-1,-1), axis=(0,1)) +
-    -(1/36) * np.roll(psi, shift=(-1,+1), axis=(0,1)) +
-    -(1/36) * np.roll(psi, shift=(+1,+1), axis=(0,1)) +
-    (1/36) * np.roll(psi, shift=(+1,-1), axis=(0,1)))
+    Fx_w = -G_ww*psi_w*(
+    (1/9) * np.roll(psi_w, -1, axis=1) +
+    -(1/9) * np.roll(psi_w, +1, axis=1) +
+    (1/36) * np.roll(psi_w, shift=(-1,-1), axis=(0,1)) +
+    -(1/36) * np.roll(psi_w, shift=(-1,+1), axis=(0,1)) +
+    -(1/36) * np.roll(psi_w, shift=(+1,+1), axis=(0,1)) +
+    (1/36) * np.roll(psi_w, shift=(+1,-1), axis=(0,1)))
+
+    Fy_w = -G_ww*psi_w*(
+    (1/9) * np.roll(psi_w, -1, axis=0) +
+    -(1/9) * np.roll(psi_w, +1, axis=0) +
+    (1/36) * np.roll(psi_w, shift=(-1,-1), axis=(0,1)) +
+    (1/36) * np.roll(psi_w, shift=(-1,+1), axis=(0,1)) +
+    -(1/36) * np.roll(psi_w, shift=(+1,+1), axis=(0,1)) +
+    -(1/36) * np.roll(psi_w, shift=(+1,-1), axis=(0,1)))
     
-    psi = psi0*(1-np.exp(-rho0/rho))
+    Fx_oil = -G_oo*psi_oil*(
+    (1/9) * np.roll(psi_oil, -1, axis=1) +
+    -(1/9) * np.roll(psi_oil, +1, axis=1) +
+    (1/36) * np.roll(psi_oil, shift=(-1,-1), axis=(0,1)) +
+    -(1/36) * np.roll(psi_oil, shift=(-1,+1), axis=(0,1)) +
+    -(1/36) * np.roll(psi_oil, shift=(+1,+1), axis=(0,1)) +
+    (1/36) * np.roll(psi_oil, shift=(+1,-1), axis=(0,1)))
 
-    Fy = -G*psi*(
-    (1/9) * np.roll(psi, -1, axis=0) +
-    -(1/9) * np.roll(psi, +1, axis=0) +
-    (1/36) * np.roll(psi, shift=(-1,-1), axis=(0,1)) +
-    (1/36) * np.roll(psi, shift=(-1,+1), axis=(0,1)) +
-    -(1/36) * np.roll(psi, shift=(+1,+1), axis=(0,1)) +
-    -(1/36) * np.roll(psi, shift=(+1,-1), axis=(0,1)))
+    Fy_oil = -G_oo*psi_oil*(
+    (1/9) * np.roll(psi_oil, -1, axis=0) +
+    -(1/9) * np.roll(psi_oil, +1, axis=0) +
+    (1/36) * np.roll(psi_oil, shift=(-1,-1), axis=(0,1)) +
+    (1/36) * np.roll(psi_oil, shift=(-1,+1), axis=(0,1)) +
+    -(1/36) * np.roll(psi_oil, shift=(+1,+1), axis=(0,1)) +
+    -(1/36) * np.roll(psi_oil, shift=(+1,-1), axis=(0,1)))
 
-    ux_eq_w = ux + tau_w*Fx/rho_w
-    uy_eq_w = uy + tau_w*Fy/rho_w                   #-glbm * tu_w
-    ux_eq_oil = ux + tau_oil*Fx/rho_oil
-    uy_eq_oil = uy + tau_oil*Fy/rho_oil             #-glbm * tu_oil
+    ux_eq_w = ux + tau_w*Fx_w/rho_w
+    uy_eq_w = uy + tau_w*Fy_w/rho_w                   #-glbm * tu_w
+    ux_eq_oil = ux + tau_oil*Fx_oil/rho_oil
+    uy_eq_oil = uy + tau_oil*Fy_oil/rho_oil             #-glbm * tu_oil
     
     cu_w = cx[:, None, None] * ux_eq_w[None, :, :] + cy[:, None, None] * uy_eq_w[None, :, :]
     cu_oil = cx[:, None, None] * ux_eq_oil[None, :, :] + cy[:, None, None] * uy_eq_oil[None, :, :]
@@ -198,10 +242,11 @@ for it in range(maxIter):
         f_w[i, :, :] = np.roll(f_w[i, :, :], shift=(cy[i], cx[i]), axis=(0, 1))
         f_oil[i, :, :] = np.roll(f_oil[i, :, :], shift=(cy[i], cx[i]), axis=(0, 1))
         
-        print(f"it={it} rho min={rho.min():.3f} max={rho.max():.3f} NaN={np.isnan(rho).sum()}")
-        print(f"it={it} psi min={rho.min():.3f} max={psi.max():.3f} NaN={np.isnan(psi).sum()}") 
-        print(f"it={it} Fx min={rho.min():.3f} max={Fx.max():.3f} NaN={np.isnan(Fx).sum()}")
-        print(f"it={it} Fy min={rho.min():.3f} max={Fy.max():.3f} NaN={np.isnan(Fy).sum()}")
+    print(f"it={it} rho min={rho.min():.3f} max={rho.max():.3f} NaN={np.isnan(rho).sum()}")
+    print(f"it={it} psi_w min={rho.min():.3f} max={psi_w.max():.3f} NaN={np.isnan(psi_w).sum()}")
+    print(f"it={it} psi_oil min={rho.min():.3f} max={psi_oil.max():.3f} NaN={np.isnan(psi_oil).sum()}")
+    print(f"it={it} Fx_oil min={rho.min():.3f} max={Fx_oil.max():.3f} NaN={np.isnan(Fx_oil).sum()}")
+    print(f"it={it} Fy_oil min={rho.min():.3f} max={Fy_oil.max():.3f} NaN={np.isnan(Fy_oil).sum()}")
 
     if it % 200 == 0 and it > 0:
         print(f"Iter {it}, max ux = {np.max(ux):.4f}")
@@ -231,19 +276,52 @@ X, Y = np.meshgrid(np.arange(Nx), np.arange(Ny))
 # Plot 
 #
 
-plt.figure(figsize=(12, 4))
+plt.figure(figsize=(12, 8))
 
-plt.subplot(1, 2, 1)
+plt.subplot(2, 2, 1)
 plt.imshow(phi, origin='lower', cmap='coolwarm', vmin=0, vmax=1)
 plt.colorbar(label='Oil fraction')
-plt.title(f'Oil distribution (10%), G={G}')
+plt.title(f'Oil distribution (10%)')
 plt.xlabel('x'); plt.ylabel('y')
+plt.xlim(0,Nx-1)
+plt.ylim(0,Ny-1)
 
-plt.subplot(1, 2, 2)
+plt.subplot(2, 2, 2)
 plt.imshow(np.sqrt(ux**2 + uy**2)/U_lid, origin='lower', cmap='viridis')
 plt.streamplot(X, Y, ux/U_lid, uy/U_lid, density=1.2, color='white', linewidth=0.6, arrowsize=0.8)
 plt.colorbar(label='|U| / U_lid')
-plt.title('Velocity + Streamlines')
+plt.title('Bulk Velocity + Streamlines')
+plt.xlim(0,Nx-1)
+plt.ylim(0,Ny-1)
 
-plt.tight_layout()
+plt.subplot(2, 2, 3)
+plt.imshow(np.sqrt(ux_w**2 + uy_w**2)/U_lid, origin='lower', cmap='viridis')
+plt.streamplot(X, Y, ux_w/U_lid, uy_w/U_lid, density=1.2, color='white', linewidth=0.6, arrowsize=0.8)
+plt.colorbar(label='|U_w| / U_lid')
+plt.title('Water Velocity + Streamlines')
+plt.xlim(0,Nx-1)
+plt.ylim(0,Ny-1)
+
+plt.subplot(2, 2, 4)
+plt.imshow(np.sqrt(ux_oil**2 + uy_oil**2)/U_lid, origin='lower', cmap='viridis')
+plt.streamplot(X, Y, ux_oil/U_lid, uy_oil/U_lid, density=1.2, color='white', linewidth=0.6, arrowsize=0.8)
+plt.colorbar(label='|U_oil| / U_lid')
+plt.title('Oil Velocity + Streamlines')
+plt.xlim(0,Nx-1)
+plt.ylim(0,Ny-1)
+
+oil_mass_history = np.array(oil_mass_history)
+water_mass_history = np.array(water_mass_history)
+time_history = np.array(time_history)
+
+plt.figure(figsize=(8, 4))
+plt.plot(time_history, oil_mass_history, label='Oil', color='red', linewidth=2)
+plt.plot(time_history, water_mass_history, label='Water', color='blue', linewidth=2)
+
+plt.xlabel('Time step')
+plt.ylabel('Total mass / Initial mass')
+plt.title('Mass conservation over time')
+plt.xlim(1, maxIter)
+plt.grid(True, alpha=0.3)
+plt.legend()
 plt.show()
